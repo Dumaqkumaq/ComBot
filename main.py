@@ -2,6 +2,8 @@ import ollama as a
 import telebot as tb
 from telebot import types
 import os
+import json
+
 
 token = open('token.txt').readline()
 bot = tb.TeleBot(token)
@@ -100,7 +102,11 @@ def addcommoninfoforres(num):
     if num >= 13 and num <= 18:
         return '(средняя степень выраженности)'
     return '(признак акцентуации)'
-
+#load scenario.json
+def parse_json(name):
+    with open(f"scenarios/{name}.json",'r', encoding='utf-8') as f:
+        data = json.load(f)
+    return data
 
 #
 # TELEGRAM FUNCTIONS
@@ -192,11 +198,11 @@ def callback_handler(call):
                     bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_text + " обдумывание...")
 
                     bot_text += " " + llmchat_botopinion(bot_text)
-                    bot_text += '\n\nВы можете обнулить результат, нажав на нужную кнопку ниже.'
                     markup = types.InlineKeyboardMarkup()
-                    btn1 = types.InlineKeyboardButton(text="✅", callback_data="restartres")
-                    btn2 = types.InlineKeyboardButton(text="Оставить", callback_data="notest2")
-                    markup.add(btn1, btn2)
+                    btn1 = types.InlineKeyboardButton(text="Обнулить", callback_data="restartres")
+                    btn2 = types.InlineKeyboardButton(text="Общение", callback_data="notest2")
+                    btn3 = types.InlineKeyboardButton(text="Проработать", callback_data="scenariomenu")
+                    markup.add(btn1, btn2, btn3)
                     bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_text, reply_markup=markup)
                     return
                 elif call.data == "yestest":
@@ -224,6 +230,26 @@ def callback_handler(call):
             bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_text, reply_markup=markup)
         except Exception as e:
             print(f"---во время создания users/id.txt возникла ошибка: {str(e)}")
+    elif call.data == 'scenariomenu':
+        markup = types.InlineKeyboardMarkup()
+        #было бы отличной идеей сделать чтение папки, откуда подсосутся файлы и их названия
+        #но мне так поебать, что решил выбрать легчайший путь
+        btn1 = types.InlineKeyboardButton(text="Возбудимый", callback_data="Возбудимый")
+        btn2 = types.InlineKeyboardButton(text="Гипертимный", callback_data="Гипертимный")
+        btn3 = types.InlineKeyboardButton(text="Дистимический", callback_data="Дистимический")
+        btn4 = types.InlineKeyboardButton(text="Застревающий", callback_data="Застревающий")
+        btn5 = types.InlineKeyboardButton(text="Интровертированный", callback_data="Интровертированный")
+        btn6 = types.InlineKeyboardButton(text="Истероидный", callback_data="Истероидный")
+        btn7 = types.InlineKeyboardButton(text="Лабильный", callback_data="Лабильный")
+        btn8 = types.InlineKeyboardButton(text="Педантичный", callback_data="Педантичный")
+        btn9 = types.InlineKeyboardButton(text="Психастенический", callback_data="Психастенический")
+        btn10 = types.InlineKeyboardButton(text="Тревожный", callback_data="Тревожный")
+        btn11 = types.InlineKeyboardButton(text="Экзальтированный", callback_data="Экзальтированный")
+        btn12 = types.InlineKeyboardButton(text="Экстравертированный", callback_data="Экстравертированный")
+        markup.add(btn1,btn2,btn3,btn4,btn5,btn6,btn7,btn8,btn9,btn10,btn11,btn12)
+
+        scenariost = "Вы перешли в меню выбора сценария для отработки своих навыков.\nВыберите желаемый навык для прохождения короткого сценария.\nВ конце бот даст мнение о вашем выборе"
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=scenariost, reply_markup=markup)
 #text
 @bot.message_handler(content_types=['text'])
 def chat(msg):
@@ -275,7 +301,9 @@ def document_handler(msg):
 
 
 
+
 if __name__ == '__main__':
+    parse_json()
     print('-------------бот начал работу--------------')
     getquestion()
     bot.infinity_polling()
