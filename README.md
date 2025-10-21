@@ -8,7 +8,7 @@
 ## Установка
 1. **Установите Python**
 2. **Установите Ollama:** установите библиотеку ollama для python с помощью `pip install ollama`. Также необходимо установить саму [ollama](https://ollama.com) для работы ии.
-3. **Установите telebot:** установите библиотеку telebot для python `pip install telebot'
+3. **Установите telebot:** установите библиотеку telebot для python `pip install telebot`
 4. **Получите токен бота:** для этого перейдите в botfather в тг    
 
 ## Использование

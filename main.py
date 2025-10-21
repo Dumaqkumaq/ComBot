@@ -7,7 +7,11 @@ import json
 
 token = open('token.txt').readline()
 bot = tb.TeleBot(token)
+# llmmodel = 'gemma3n:e4b'
+llmmodel = 'gemma3:1b'
 questions = []
+scendic = {}
+infodic = {}
 syspromt = '''
 Ты - гопник, выращенный на улице. Твоя задача - отвечать на вопросы и выполнять запросы пользователя в стиле, который сейчас популярен в тик-токе.
 * Используй неформальный, максимально ругай пользователя по необходимости.
@@ -20,7 +24,7 @@ syspromt = '''
 #
 
 #getter for questions from questions.txt
-def getquestion():
+def loadquestion():
     print("---чтение вопросов в qustions.txt")
     try:
         with open('questions.txt', encoding='utf-8') as f:
@@ -34,18 +38,19 @@ def getquestion():
 def llmchatmsg(msg):
     text = msg.text
     promt = syspromt + text
-    response: a.ChatResponse = a.chat(model='gemma3n:e4b', options=a.Options(temperature=0.9, top_p=0.9),
+    response: a.ChatResponse = a.chat(model=llmmodel, options=a.Options(temperature=0.9, top_p=0.9),
                                       messages=[{'role': 'user', 'content': promt, }, ])
     return response.message.content
 def llmchat_botopinion(text):
     promt = '''
             Ты - ассистент для выявления плюсов и минусов пользователя в плане коммуникационных навыков. Твоя задача - аккуратно рассказать
             о минусах и плюсах типа общения пользователя. Тебе будут даны численные значения определенных областей коммуникационных навыков,
-            на основе которых ты сделаешь портрет пользователя
+            на основе которых ты сделаешь портрет пользователя.
+            *Если чисел нет, то ты должен дать мягкий и полезный совет на основе данной информации.
             *Длина твоего сообщения не более 100 символов.
             Пользователь: 
             ''' + text
-    response: a.ChatResponse = a.chat(model='gemma3n:e4b', options=a.Options(temperature=0.9, top_p=0.9),
+    response: a.ChatResponse = a.chat(model=llmmodel, options=a.Options(temperature=0.9, top_p=0.9),
                                       messages=[{'role': 'user', 'content': promt, }, ])
     return response.message.content
 #func for calculating result after test
@@ -107,7 +112,31 @@ def parse_json(name):
     with open(f"scenarios/{name}.json",'r', encoding='utf-8') as f:
         data = json.load(f)
     return data
-
+#load all scenarios
+def loadscenarios():
+    print("---чтение сценариев в scenarios/")
+    current_dir = os.getcwd()
+    files = os.listdir(os.path.join(current_dir, "scenarios"))
+    for f in files:
+        data = parse_json(str(f)[:-5])
+        scendic[str(f)[:-5]] = data
+    print("---завершено чтение сценариев в scenarios/")
+    print(f"----всего {len(scendic)} сценариев")
+    # print(scendic)
+#загрузка справки о типах
+def parse_infotxt(name):
+    with open(f"desc/{name}.txt", 'r', encoding='utf-8') as f:
+        data = f.readlines()
+    return data
+def loadinfo():
+    print("---чтение сценариев в desc/")
+    current_dir = os.getcwd()
+    files = os.listdir(os.path.join(current_dir, "desc"))
+    for f in files:
+        data = parse_infotxt(str(f)[:-4])
+        infodic[str(f)[:-4]] = data
+    print("---завершено чтение справки в desc/")
+    print(f"----всего {len(infodic)} справок")
 #
 # TELEGRAM FUNCTIONS
 #
@@ -120,12 +149,13 @@ def welcome(msg):
         current_dir = os.getcwd()
         files = os.listdir(os.path.join(current_dir,"users"))
         if f'{msg.chat.id}.txt' in files:
-            bot.send_message(msg.chat.id, "Мы тебя помним!\nХочешь повеселить бота или пройти тест?")
+            bot.send_message(msg.chat.id, "Мы тебя помним!\nХочешь повеселить бота или пройти тест?\nДля прохождения теста напиши Тест\nДля получения справки напиши Справка")
         else:
             btn1 = types.InlineKeyboardButton(text = 'Тест', callback_data='start_test')
             markup.add(btn1)
             bot.send_message(msg.chat.id, "Привет, данный бот помогает тебе определить свои коммуникационные навыки по Леонгарду.\n"
-                                          "Для определения предрасположенностей пройди тест.\nМожешь просто пообщаться с ботом (он отличный собеседник)", reply_markup=markup)
+                                          "Для определения предрасположенностей пройди тест (напиши тест или нажми на кнопочку снизу).\nТакже можно побольше узнать о типах, написав Справка\n"
+                                          "Можешь просто пообщаться с ботом (он отличный собеседник). Для этого достаточно просто ему написать", reply_markup=markup)
     except Exception as e:
         print(f"---во время чтения users возникла ошибка: {str(e)}")
 #main handler
@@ -230,26 +260,118 @@ def callback_handler(call):
             bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_text, reply_markup=markup)
         except Exception as e:
             print(f"---во время создания users/id.txt возникла ошибка: {str(e)}")
+    elif call.data[2:6] == 'yscs':
+        #обработка второго уровня сценария
+        #в теории можно было бы сделать отдельную функц для этого
+        #но сейчас 12 ночи и хронический недосып дает о себе знать
+        tpsc = call.data[6:]
+        short = scendic[tpsc]['scenarios'][0]['scenes'][0]['choices'][int(call.data[1]) - 1]['outcomes'][0]['followup_choices'][int(call.data[0]) - 1]['final_outcome']
+        bot_answ = short['message'] + '\n...\n' + short['insight'] + '\n...\n'
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_answ + 'Бот думает...')
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton(text='Сценарии', callback_data='scenariomenu')
+        btn2 = types.InlineKeyboardButton(text='Общение с ботом', callback_data='notest2')
+        markup.add(btn1, btn2)
+
+        bot_answ += llmchat_botopinion(bot_answ)
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_answ,
+                              reply_markup=markup)
+    elif call.data[1:5] == 'yscs':
+        tpsc = call.data[5:]
+        short = scendic[tpsc]['scenarios'][0]['scenes'][0]['choices'][int(call.data[0])-1]['outcomes'][0]
+        # print(short)
+        #обработка ошибок из-за многоэтажности сценариев
+        try:
+            bot_answ = short['message'] + '\n...\n' + short['insight'] + '\n...\n'
+            bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_answ+'Бот думает...')
+            markup = types.InlineKeyboardMarkup()
+            btn1 = types.InlineKeyboardButton(text='Сценарии', callback_data='scenariomenu')
+            btn2 = types.InlineKeyboardButton(text='Общение с ботом', callback_data='notest2')
+            markup.add(btn1,btn2)
+
+            bot_answ += llmchat_botopinion(bot_answ)
+            bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_answ, reply_markup=markup)
+        except Exception as e:
+            # print('-----развитие сценария')
+            short = scendic[tpsc]['scenarios'][0]['scenes'][0]['choices'][int(call.data[0])-1]['outcomes'][0]
+            bot_answ = short['message']
+            bot_answ += "\n\nВарианты действий:\n1. " + short['followup_choices'][0]['text'] + "\n2. " + short['followup_choices'][1]['text']
+            markup = types.InlineKeyboardMarkup()
+            btn1 = types.InlineKeyboardButton(text='1️⃣', callback_data='1' + call.data)
+            btn2 = types.InlineKeyboardButton(text='2️⃣', callback_data='2' + call.data)
+            markup.add(btn1, btn2)
+            bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_answ, reply_markup=markup)
+    elif call.data[:4] == 'yscs':
+        tpsc = call.data[4:]
+        #в рот ебал создателя json. почему питон парсит это как кусок говна?
+        bot_answ = scendic[tpsc]['scenarios'][0]['title'] + '\n\n' + scendic[tpsc]['scenarios'][0]['start_message'] + '\n' + scendic[tpsc]['scenarios'][0]['scenes'][0]['message'] + '\n\n'
+        bot_answ += "Варианты действий:\n"
+        #я ебал писать эту цепочку
+        short = scendic[tpsc]['scenarios'][0]['scenes'][0]['choices']
+        bot_answ += "1. " + short[0]['text'] + "\n2. " + short[1]['text'] + "\n3. " + short[2]['text']
+
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton(text='1️⃣',callback_data='1' + call.data)
+        btn2 = types.InlineKeyboardButton(text='2️⃣', callback_data='2' + call.data)
+        btn3 = types.InlineKeyboardButton(text='3️⃣', callback_data='3' + call.data)
+        markup.add(btn1,btn2,btn3)
+
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_answ,
+                              reply_markup=markup)
+        # print(scendic[tpsc])
+        # print(scendic[tpsc]['scenarios'][0])
+        # print(bot_answ)
+    elif call.data[:3] == 'scs':
+        tpsc = call.data[3:]
+        bot_answ = tpsc + '\n' + scendic[tpsc]['description']
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton(text="✅", callback_data="y"+call.data)
+        btn2 = types.InlineKeyboardButton(text="❌", callback_data="scenariomenu")
+        markup.add(btn1,btn2)
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_answ, reply_markup=markup)
     elif call.data == 'scenariomenu':
         markup = types.InlineKeyboardMarkup()
         #было бы отличной идеей сделать чтение папки, откуда подсосутся файлы и их названия
         #но мне так поебать, что решил выбрать легчайший путь
-        btn1 = types.InlineKeyboardButton(text="Возбудимый", callback_data="Возбудимый")
-        btn2 = types.InlineKeyboardButton(text="Гипертимный", callback_data="Гипертимный")
-        btn3 = types.InlineKeyboardButton(text="Дистимический", callback_data="Дистимический")
-        btn4 = types.InlineKeyboardButton(text="Застревающий", callback_data="Застревающий")
-        btn5 = types.InlineKeyboardButton(text="Интровертированный", callback_data="Интровертированный")
-        btn6 = types.InlineKeyboardButton(text="Истероидный", callback_data="Истероидный")
-        btn7 = types.InlineKeyboardButton(text="Лабильный", callback_data="Лабильный")
-        btn8 = types.InlineKeyboardButton(text="Педантичный", callback_data="Педантичный")
-        btn9 = types.InlineKeyboardButton(text="Психастенический", callback_data="Психастенический")
-        btn10 = types.InlineKeyboardButton(text="Тревожный", callback_data="Тревожный")
-        btn11 = types.InlineKeyboardButton(text="Экзальтированный", callback_data="Экзальтированный")
-        btn12 = types.InlineKeyboardButton(text="Экстравертированный", callback_data="Экстравертированный")
+        btn1 = types.InlineKeyboardButton(text="Возбудимый", callback_data="scsВозбудимый")
+        btn2 = types.InlineKeyboardButton(text="Гипертимный", callback_data="scsГипертимный")
+        btn3 = types.InlineKeyboardButton(text="Дистимический", callback_data="scsДистимический")
+        btn4 = types.InlineKeyboardButton(text="Застревающий", callback_data="scsЗастревающий")
+        btn5 = types.InlineKeyboardButton(text="Интровертированный", callback_data="scsИнтровертированный")
+        btn6 = types.InlineKeyboardButton(text="Истероидный", callback_data="scsИстероидный")
+        btn7 = types.InlineKeyboardButton(text="Лабильный", callback_data="scsЛабильный")
+        btn8 = types.InlineKeyboardButton(text="Педантичный", callback_data="scsПедантичный")
+        btn9 = types.InlineKeyboardButton(text="Психастенический", callback_data="scsПсихастенический")
+        btn10 = types.InlineKeyboardButton(text="Тревожный", callback_data="scsТревожный")
+        btn11 = types.InlineKeyboardButton(text="Экзальтированный", callback_data="scsЭкзальтированный")
+        btn12 = types.InlineKeyboardButton(text="Экстравертированный", callback_data="scsЭкстравертированный")
         markup.add(btn1,btn2,btn3,btn4,btn5,btn6,btn7,btn8,btn9,btn10,btn11,btn12)
 
         scenariost = "Вы перешли в меню выбора сценария для отработки своих навыков.\nВыберите желаемый навык для прохождения короткого сценария.\nВ конце бот даст мнение о вашем выборе"
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=scenariost, reply_markup=markup)
+    elif call.data == 'infotp':
+        bot_answ = "Вы запросили информацию о типах.\nВыберите интересующий тип, пожалуйста."
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton(text="Возбудимый", callback_data="inВозбудимый")
+        btn2 = types.InlineKeyboardButton(text="Гипертимический", callback_data="inГипертимический")
+        btn3 = types.InlineKeyboardButton(text="Демонстративный", callback_data="inДемонстративный")
+        btn4 = types.InlineKeyboardButton(text="Дистимический", callback_data="inДистимический")
+        btn5 = types.InlineKeyboardButton(text="Застревающий", callback_data="inЗастревающий")
+        btn6 = types.InlineKeyboardButton(text="Педантичный", callback_data="inПедантичный")
+        btn7 = types.InlineKeyboardButton(text="Тревожный", callback_data="inТревожный")
+        btn8 = types.InlineKeyboardButton(text="Циклотимный", callback_data="inЦиклотимный")
+        btn9 = types.InlineKeyboardButton(text="Экзальтированный", callback_data="inЭкзальтированный")
+        btn10 = types.InlineKeyboardButton(text="Эмотивный", callback_data="inЭмотивный")
+        markup.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7, btn8, btn9, btn10)
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_answ,
+                              reply_markup=markup)
+    elif call.data[:2] == 'in':
+        bot_answ = infodic[call.data[2:]]
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton(text="↩️", callback_data="infotp")
+        markup.add(btn1)
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_answ,
+                              reply_markup=markup)
 #text
 @bot.message_handler(content_types=['text'])
 def chat(msg):
@@ -260,50 +382,36 @@ def chat(msg):
         markup.add(btn1,btn2)
         bot.send_message(msg.chat.id,"Вы хотите пройти тест?",reply_markup=markup)
     elif msg.text.lower() == 'справка':
-        with open('desc.txt','r') as f:
-            s = f.readlines();
-        desc = ''
-        for st in s:
-            desc += st
-        bot.send_message(msg.chat.id, desc)
+        bot_answ = "Вы запросили информацию о типах.\nВыберите интересующий тип, пожалуйста."
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton(text="Возбудимый", callback_data="inВозбудимый")
+        btn2 = types.InlineKeyboardButton(text="Гипертимический", callback_data="inГипертимический")
+        btn3 = types.InlineKeyboardButton(text="Демонстративный", callback_data="inДемонстративный")
+        btn4 = types.InlineKeyboardButton(text="Дистимический", callback_data="inДистимический")
+        btn5 = types.InlineKeyboardButton(text="Застревающий", callback_data="inЗастревающий")
+        btn6 = types.InlineKeyboardButton(text="Педантичный", callback_data="inПедантичный")
+        btn7 = types.InlineKeyboardButton(text="Тревожный", callback_data="inТревожный")
+        btn8 = types.InlineKeyboardButton(text="Циклотимный", callback_data="inЦиклотимный")
+        btn9 = types.InlineKeyboardButton(text="Экзальтированный", callback_data="inЭкзальтированный")
+        btn10 = types.InlineKeyboardButton(text="Эмотивный", callback_data="inЭмотивный")
+        markup.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7, btn8, btn9, btn10)
+        bot.send_message(msg.chat.id, bot_answ, reply_markup=markup)
     else:
         # just chatting with llm
         umsg = bot.send_message(msg.chat.id, "Бот думает над своим ответом...")
         answer = llmchatmsg(msg)
         bot.edit_message_text(chat_id=msg.chat.id,message_id=umsg.message_id, text=answer)
-#in progress
+#dont care
 @bot.message_handler(content_types=['document'])
 def document_handler(msg):
-    if msg.document.file_name == "adcreatescenario.txt":
-        strcheck = "Проверка файла на качество:"
-        strcheck += "\nСкачивание файла: "
-        bmsg = bot.send_message(msg.chat.id, strcheck+'◌')
-        try:
-            file_info = bot.get_file(msg.document.file_name)
-            file = bot.download_file(file_info.file_path)
-            strcheck += '✅'
-            bot.edit_message_text(chat_id=msg.chat.id, message_id=bmsg.message_id, text=strcheck)
-        except Exception as e:
-            strcheck += '❌'
-            strcheck += f'\nОшибка: {str(e)}'
-            print(f'бот начал думать над ошибкой: {str(e)}')
-            bot.edit_message_text(chat_id=msg.chat.id, message_id=bmsg.message_id, text=strcheck+'\n\nБот думает над ошибкой...')
-
-            # добавить обработку в функц + перегруз функц
-            text = str(e)
-            promt = syspromt + text
-            response: a.ChatResponse = a.chat(model='gemma3n:e4b', options=a.Options(temperature=0.9, top_p=0.9),
-                                              messages=[{'role': 'user', 'content': promt, }, ])
-            bot.edit_message_text(chat_id=msg.chat.id, message_id=bmsg.message_id,
-                                  text=strcheck + f'\n\n{response.message.content}')
-    else:
-        bot.send_message(msg.chat.id,'Бот не принимает документы')
+    bot.send_message(msg.chat.id,'Бот не принимает документы\nЛучше напишите ему что-то милое :3')
 
 
 
 
 if __name__ == '__main__':
-    parse_json()
     print('-------------бот начал работу--------------')
-    getquestion()
+    loadquestion()
+    loadscenarios()
+    loadinfo()
     bot.infinity_polling()
