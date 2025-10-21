@@ -12,12 +12,24 @@ llmmodel = 'gemma3:1b'
 questions = []
 scendic = {}
 infodic = {}
-syspromt = '''
-Ты - гопник, выращенный на улице. Твоя задача - отвечать на вопросы и выполнять запросы пользователя в стиле, который сейчас популярен в тик-токе.
+bot_types = ['гопник', 'милая девушка', 'подобие психолога', 'друг']
+promts = ['''Ты - гопник, выращенный на улице. Твоя задача - отвечать на вопросы и выполнять запросы пользователя в стиле, который сейчас популярен в тик-токе.
 * Используй неформальный, максимально ругай пользователя по необходимости.
 
-Пользователь: 
-'''
+Пользователь: ''','''Ты - милая и прекрасная девушка. Твоя задача крайне аккуратно и стеснительно изъяснять свои сообщения.
+* Старайся замалчивать о каких-то маловажных моментах.
+* Используй различные сокращения и эмодзи из смайликов по типу uwu и тому подобное для придачи окраса своим сообщениям.
+
+Пользователь: ''', '''Ты - человек, имеющий образование психолога. Твоя задача состоит в даче простых дружеских советов с нотками научных терминов и озабоченности философскими вопросами.
+* Ты грамотный, поэтому должен следить за своей грамотностью.
+* Если пользователь задает вопрос, то ты должен дать краткий и крайне информативный ответ
+
+Пользователь: ''', '''Ты - хороший приятель пользователя. Веди непринужденное общение с пользователем.
+* Спрашивай как дела у пользователя, проявляй простой интерес.
+* Если есть возможность, то пробуй подколоть пользователя. 
+* Твой юмор и сарказм не должны переходить на черный юмор.
+
+Пользователь: ''']
 
 #
 #   additional functions
@@ -37,7 +49,8 @@ def loadquestion():
 #simple func for chatting with llm
 def llmchatmsg(msg):
     text = msg.text
-    promt = syspromt + text
+    btype = loadtypebot(msg)
+    promt = promts[int(btype)] + text
     response: a.ChatResponse = a.chat(model=llmmodel, options=a.Options(temperature=0.9, top_p=0.9),
                                       messages=[{'role': 'user', 'content': promt, }, ])
     return response.message.content
@@ -137,6 +150,11 @@ def loadinfo():
         infodic[str(f)[:-4]] = data
     print("---завершено чтение справки в desc/")
     print(f"----всего {len(infodic)} справок")
+#load bot type
+def loadtypebot(msg):
+    with open(f'users/{msg.chat.id}.txt','r',encoding='utf-8') as f:
+        data = f.readline()[-2]
+    return data
 #
 # TELEGRAM FUNCTIONS
 #
@@ -153,6 +171,8 @@ def welcome(msg):
         else:
             btn1 = types.InlineKeyboardButton(text = 'Тест', callback_data='start_test')
             markup.add(btn1)
+            with open(f'users/{msg.chat.id}.txt', 'w+',encoding='utf-8') as f:
+                f.write("0;")
             bot.send_message(msg.chat.id, "Привет, данный бот помогает тебе определить свои коммуникационные навыки по Леонгарду.\n"
                                           "Для определения предрасположенностей пройди тест (напиши тест или нажми на кнопочку снизу).\nТакже можно побольше узнать о типах, написав Справка\n"
                                           "Можешь просто пообщаться с ботом (он отличный собеседник). Для этого достаточно просто ему написать", reply_markup=markup)
@@ -184,7 +204,7 @@ def callback_handler(call):
         files = os.listdir(os.path.join(current_dir, "users"))
         if f'{call.message.chat.id}.txt' in files:
             with open(f'users/{call.message.chat.id}.txt', 'w', encoding='utf-8') as f:
-                f.write("0;")
+                f.write("0;0;")
             markup = types.InlineKeyboardMarkup()
             btn1 = types.InlineKeyboardButton(text="Тест", callback_data="start_test")
             btn2 = types.InlineKeyboardButton(text="Общение с ботом", callback_data="notest2")
@@ -199,12 +219,14 @@ def callback_handler(call):
             if f'{call.message.chat.id}.txt' in files:
                 s = open(f'users/{call.message.chat.id}.txt','r',encoding='utf-8').readline()
                 s = s.split(';')
+                bot_type = s.pop()
                 if int(s[0]) >= (len(questions)-1):
                     if call.data == 'yesquestion':
                         s.append('1')
                     elif call.data == 'noquestion':
                         s.append('0')
                     with open(f'users/{call.message.chat.id}.txt', 'w', encoding='utf-8') as f:
+                        s.append(bot_type)
                         s = ';'.join(s)
                         f.write(s)
                     s = s.split(';')
@@ -245,9 +267,10 @@ def callback_handler(call):
                     s[0] = str(int(s[0])+1)
                     s.append('0')
                     bot_text += questions[int(s[0])]
+                s.append(bot_type)
                 s = ';'.join(s)
             else:
-                    s = "0"  # номер_вопроса;res;res;res;...
+                    s = "0;0;"  # номер_вопроса;res;res;res;...;bot_type;
                     bot_text += questions[0]
             with open(f'users/{call.message.chat.id}.txt', 'w', encoding='utf-8') as f:
                 f.write(s)
@@ -372,6 +395,30 @@ def callback_handler(call):
         markup.add(btn1)
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_answ,
                               reply_markup=markup)
+    elif call.data == 'settings':
+        bot_answ = "Вы запросили настройки бота.\nТут вы можете выбрать себе собеседника.\n"
+        bot_answ += f"Выбранный напарник: {bot_types[int(loadtypebot(call.message))]}"
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton(text="Гопник", callback_data="bt1")
+        btn2 = types.InlineKeyboardButton(text="Милая девушка", callback_data="bt2")
+        btn3 = types.InlineKeyboardButton(text="Подобие психолога", callback_data="bt3")
+        btn4 = types.InlineKeyboardButton(text="Друг", callback_data="bt4")
+        markup.add(btn1, btn2, btn3, btn4)
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_answ,
+                              reply_markup=markup)
+    elif call.data[:2] == 'bt':
+        btype = bot_types[int(call.data[2])-1]
+        with open(f'users/{call.message.chat.id}.txt', 'r', encoding='utf-8') as f:
+            s = f.readline()
+        s = s[:-2] + f"{int(call.data[2]) - 1};"
+        with open(f'users/{call.message.chat.id}.txt', 'w', encoding='utf-8') as f:
+            f.write(s)
+        bot_answ = f"Вы выбрали: {btype}\nМожете общаться!"
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton(text='Назад', callback_data="settings")
+        markup.add(btn1)
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=bmsg.message_id, text=bot_answ,
+                              reply_markup=markup)
 #text
 @bot.message_handler(content_types=['text'])
 def chat(msg):
@@ -396,18 +443,26 @@ def chat(msg):
         btn10 = types.InlineKeyboardButton(text="Эмотивный", callback_data="inЭмотивный")
         markup.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7, btn8, btn9, btn10)
         bot.send_message(msg.chat.id, bot_answ, reply_markup=markup)
+    elif msg.text.lower() == 'настройки':
+        bot_answ = "Вы запросили настройки бота.\nТут вы можете выбрать себе собеседника.\n"
+        bot_answ += f"Выбранный напарник: {bot_types[int(loadtypebot(msg))]}"
+        markup = types.InlineKeyboardMarkup()
+        btn1 = types.InlineKeyboardButton(text="Гопник", callback_data="bt1")
+        btn2 = types.InlineKeyboardButton(text="Милая девушка", callback_data="bt2")
+        btn3 = types.InlineKeyboardButton(text="Подобие психолога", callback_data="bt3")
+        btn4 = types.InlineKeyboardButton(text="Друг", callback_data="bt4")
+        markup.add(btn1,btn2,btn3,btn4)
+        bot.send_message(msg.chat.id, bot_answ, reply_markup=markup)
     else:
         # just chatting with llm
         umsg = bot.send_message(msg.chat.id, "Бот думает над своим ответом...")
         answer = llmchatmsg(msg)
         bot.edit_message_text(chat_id=msg.chat.id,message_id=umsg.message_id, text=answer)
+
 #dont care
 @bot.message_handler(content_types=['document'])
 def document_handler(msg):
     bot.send_message(msg.chat.id,'Бот не принимает документы\nЛучше напишите ему что-то милое :3')
-
-
-
 
 if __name__ == '__main__':
     print('-------------бот начал работу--------------')
